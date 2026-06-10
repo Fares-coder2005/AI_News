@@ -3,7 +3,7 @@ on:
   schedule:
     # Every Saturday at 02:00 UTC (Friday night / Saturday morning)
     - cron: "0 2 * * 6"
-  workflow_dispatch:  # allows manual trigger too
+  workflow_dispatch: # allows manual trigger too
 
 jobs:
   weekly-digest:
@@ -45,5 +45,5 @@ jobs:
           name: digest-log
           path: |
             *.log
-            /tmp/**
+            /tmp/*.log
           retention-days: 7
