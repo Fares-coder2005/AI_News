@@ -35,6 +35,37 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Diagnose OpenRouter connectivity
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          echo "=== OpenRouter connectivity check ==="
+          python - <<'PY'
+          import os, requests, json, sys
+          key = os.environ.get('OPENROUTER_API_KEY', '')
+          url = 'https://openrouter.ai/api/v1/chat/completions'
+          print('Key prefix:', (key[:12] + '...') if key else 'MISSING')
+          print('URL:', url)
+          payload = {
+            'model': 'nvidia/nemotron-3-ultra-550b-a55b:free',
+            'messages': [{'role': 'user', 'content': 'Reply with OK only.'}],
+            'max_tokens': 4,
+          }
+          headers = {
+            'Authorization': f'Bearer {key}',
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://github.com/Fares-coder2005/AI_News',
+            'X-Title': 'AI Weekly Digest',
+          }
+          try:
+            r = requests.post(url, headers=headers, json=payload, timeout=30)
+            print('STATUS:', r.status_code)
+            print('BODY:', r.text[:500])
+          except Exception as e:
+            print('EXCEPTION:', repr(e))
+            sys.exit(1)
+          PY
+
       - name: Run digest
         run: python src/main.py
 
