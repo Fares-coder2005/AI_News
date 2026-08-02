@@ -7,6 +7,7 @@ import requests
 from datetime import datetime, timezone
 from urllib.parse import quote_plus
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 # ─── Feeds ───────────────────────────────────────────────────────────────────
@@ -113,7 +114,8 @@ KEYWORDS = [
     "Open Source AI", "open-source LLM", "Hugging Face",
 ]
 
-REQUEST_TIMEOUT = 15
+REQUEST_TIMEOUT = 8
+FEED_FETCH_TIMEOUT = 10
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -142,7 +144,7 @@ def _parse_date(entry) -> datetime | None:
 def _fetch_single_feed(url: str, category: str) -> list[dict]:
     items = []
     try:
-        resp = requests.get(url, timeout=REQUEST_TIMEOUT, headers={"User-Agent": "AI-Weekly-Digest/1.0"})
+        resp = requests.get(url, timeout=FEED_FETCH_TIMEOUT, headers={"User-Agent": "AI-Weekly-Digest/1.0"})
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
         for entry in feed.entries:
@@ -180,9 +182,25 @@ def fetch_all_items(days: int = 7) -> list[dict]:
     seen: set[str] = set()
     all_items: list[dict] = []
 
+    # Build flat task list
+    tasks = []
     for category, feeds in ALL_FEEDS.items():
         for url in feeds:
-            items = _fetch_single_feed(url, category)
+            tasks.append((url, category))
+
+    # Fetch in parallel with bounded workers to avoid hangs
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        future_to_meta = {
+            executor.submit(_fetch_single_feed, url, category): (url, category)
+            for url, category in tasks
+        }
+        for future in as_completed(future_to_meta, timeout=45):
+            url, category = future_to_meta[future]
+            try:
+                items = future.result()
+            except Exception as e:
+                print(f"[WARN] Future failed for {url}: {e}")
+                continue
             for item in items:
                 norm_link = _normalize_url(item["link"])
                 if norm_link in seen:
