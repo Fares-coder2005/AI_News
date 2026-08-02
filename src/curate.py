@@ -13,7 +13,7 @@ OPENROUTER_URL = os.getenv(
     "OPENROUTER_URL",
     "https://openrouter.ai/api/v1/chat/completions",
 )
-MODEL = os.getenv("MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
+MODEL = os.getenv("MODEL", "openrouter/free")
 
 
 CATEGORY_LABELS = {
