@@ -111,6 +111,11 @@ def curate(items: list[dict], max_items: int = 12) -> list[dict]:
     prompt = _build_prompt(items, max_items)
 
     print(f"[curate] Sending {len(items)} items to {model} via OpenRouter...")
+    print(f"[curate] Endpoint: {OPENROUTER_URL}")
+    print(f"[curate] Key present: {'yes' if bool(OPENROUTER_API_KEY) else 'NO'}")
+
+    if not OPENROUTER_API_KEY:
+        raise SystemExit("[curate] ERROR: OPENROUTER_API_KEY is not set. Put it in your .env file.")
 
     payload = {
         "model": model,
@@ -126,6 +131,11 @@ def curate(items: list[dict], max_items: int = 12) -> list[dict]:
         json=payload,
         timeout=120,
     )
+    if response.status_code == 404:
+        raise SystemExit(
+            f"[curate] ERROR: OpenRouter returned 404 for {OPENROUTER_URL}. "
+            "Check OPENROUTER_URL in your environment or .env."
+        )
     response.raise_for_status()
     body = response.json()
 
