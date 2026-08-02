@@ -1,18 +1,19 @@
 """
 curate.py - LLM ranking + TL;DR
 
-Sends filtered items to the configured Google Generative AI model
-(see MODEL constant below) for scoring, summarizing, and re-categorization.
+Sends filtered items to OpenRouter (Nemotron 3 Ultra by default)
+for scoring, summarizing, and re-categorization.
 """
 import os
 import json
 import re
-import google.generativeai as genai
+import requests
 
-# Default model; can be overridden by setting MODEL env var before import
-MODEL = os.getenv("MODEL", "gemma-4-31b-it")
-
-# Configure genai lazily inside curate() so .env has time to load first
+OPENROUTER_URL = os.getenv(
+    "OPENROUTER_URL",
+    "https://openrouter.ai/api/v1/chat/completions",
+)
+MODEL = os.getenv("MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
 
 
 CATEGORY_LABELS = {
@@ -30,7 +31,6 @@ def _build_prompt(items: list[dict], max_items: int = 12) -> str:
     if not items:
         return "No items to process."
 
-    # Build numbered list for the LLM
     lines = []
     for i, item in enumerate(items):
         lines.append(
@@ -74,12 +74,10 @@ ITEMS TO RANK:
 
 def _parse_llm_json(text: str) -> list[dict]:
     """Extract JSON from LLM response, handling common formatting issues."""
-    # Try direct parse
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    # Try to find JSON array in text
     match = re.search(r"\[.*\]", text, re.DOTALL)
     if match:
         try:
@@ -91,29 +89,51 @@ def _parse_llm_json(text: str) -> list[dict]:
 
 def curate(items: list[dict], max_items: int = 12) -> list[dict]:
     """
-    Send items to the configured LLM (see MODEL), get ranked + summarized list.
+    Send items to the configured LLM (OpenRouter by default),
+    get ranked + summarized list.
     Returns top-scoring items enriched with tldr and category from the LLM.
     """
     if not items:
         return []
 
-    # Load API key here (not at import time) so main.py's load_env() runs first
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    if not GEMINI_API_KEY:
-        raise SystemExit("[curate] ERROR: GEMINI_API_KEY is not set. Put it in your .env file.")
-    genai.configure(api_key=GEMINI_API_KEY)
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+    if not OPENROUTER_API_KEY:
+        raise SystemExit("[curate] ERROR: OPENROUTER_API_KEY is not set. Put it in your .env file.")
 
-    model = genai.GenerativeModel(MODEL)
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/Fares-coder2005/AI_News",
+        "X-Title": "AI Weekly Digest",
+    }
+
+    model = os.getenv("MODEL", MODEL)
     prompt = _build_prompt(items, max_items)
 
-    print(f"[curate] Sending {len(items)} items to {MODEL}...")
-    response = model.generate_content(prompt)
-    raw = response.text.strip()
-    print(f"[curate] {MODEL} response length: {len(raw)} chars")
+    print(f"[curate] Sending {len(items)} items to {model} via OpenRouter...")
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2,
+    }
+
+    response = requests.post(
+        OPENROUTER_URL,
+        headers=headers,
+        json=payload,
+        timeout=120,
+    )
+    response.raise_for_status()
+    body = response.json()
+
+    raw = body["choices"][0]["message"]["content"].strip()
+    print(f"[curate] {model} response length: {len(raw)} chars")
 
     ranked = _parse_llm_json(raw)
 
-    # Merge LLM results back with original item data
     result = []
     for r in ranked:
         idx = r.get("idx")
@@ -131,11 +151,10 @@ def curate(items: list[dict], max_items: int = 12) -> list[dict]:
 
 
 if __name__ == "__main__":
-    # Quick smoke test
     from fetch import fetch_all_items
     items = fetch_all_items()
     top = curate(items[:20])
-    print(f"\nCurated {len(top)} items:")
+    print(f"\nCurated {len(top)} items:\n")
     for item in top:
         print(f"  [{item['score']}] {item['tldr']}")
         print(f"       {item['link']}")
